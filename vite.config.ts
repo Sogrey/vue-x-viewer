@@ -6,7 +6,7 @@ import vueDevTools from "vite-plugin-vue-devtools";
 import fixShaderMacro from "./vite-plugin-fix-shader";
 
 export default defineConfig({
-  base: "/",
+  base: "/vue-x-viewer/",
   plugins: [vue(), vueDevTools(), fixShaderMacro()],
   resolve: {
     alias: {
