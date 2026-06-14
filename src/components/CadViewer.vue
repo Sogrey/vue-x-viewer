@@ -5,7 +5,11 @@ interface ViewerInstance {
   dispose?: () => void
   destroy?: () => void
   loadModel: (options: { modelId: string; name: string; src: string }) => Promise<void>
+  setFont?: (fontFiles: string[]) => Promise<void>
   goToHomeView?: () => void
+  removeModel?: (modelId: string) => void
+  getModels?: () => string[]
+  clearScene?: () => void
 }
 
 const props = defineProps<{
@@ -23,7 +27,10 @@ const containerRef = ref<HTMLDivElement>()
 const isLoading = ref(false)
 const errorMessage = ref('')
 const viewer = shallowRef<ViewerInstance | null>(null)
+const containerId = ref('cad-viewer-container')
 let loadTimeout: ReturnType<typeof setTimeout> | null = null
+let currentModelId = ''
+let currentViewerType = ''
 
 const disposeViewer = () => {
   if (viewer.value) {
@@ -37,33 +44,12 @@ const disposeViewer = () => {
       console.warn('Error disposing viewer:', e)
     }
     viewer.value = null
+    currentViewerType = ''
   }
-}
-
-const createViewerContainer = () => {
-  if (!containerRef.value) return null
-
-  const existingCanvas = containerRef.value.querySelector('.x-viewer-container')
-  if (existingCanvas) {
-    existingCanvas.remove()
-  }
-
-  const newContainer = document.createElement('div')
-  newContainer.className = 'x-viewer-container'
-  newContainer.style.width = '100%'
-  newContainer.style.height = '100%'
-  newContainer.style.position = 'absolute'
-  newContainer.style.top = '0'
-  newContainer.style.left = '0'
-
-  containerRef.value.appendChild(newContainer)
-  return newContainer
 }
 
 const loadViewer = async () => {
   if (!containerRef.value || !props.fileUrl) return
-
-  disposeViewer()
 
   isLoading.value = true
   errorMessage.value = ''
@@ -71,41 +57,78 @@ const loadViewer = async () => {
   try {
     await nextTick()
 
-    emit('loading', 40, 'Initializing viewer...')
+    const is3d = props.type === '3d' || ['gltf', 'glb', 'obj', 'fbx', 'stl', 'ifc'].includes(props.fileFormat || '')
+    const isPdf = props.fileFormat === 'pdf'
+    const viewerType = is3d ? '3d' : (isPdf ? 'pdf' : '2d')
 
-    const { Viewer2d, Viewer3d } = await import('@x-viewer/core')
-
-    emit('loading', 50, 'Creating viewer container...')
-    const newContainer = createViewerContainer()
-
-    if (!newContainer) {
-      throw new Error('Cannot create viewer container')
+    // 如果格式变化，需要重建 viewer
+    if (viewer.value && currentViewerType !== viewerType) {
+      disposeViewer()
     }
 
-    const containerId = `cad-viewer-${Date.now()}`
-    newContainer.id = containerId
+    // 清除旧模型
+    if (viewer.value && currentModelId) {
+      try {
+        if (viewer.value.removeModel) {
+          viewer.value.removeModel(currentModelId)
+        } else if (viewer.value.clearScene) {
+          viewer.value.clearScene()
+        }
+      } catch (e) {
+        console.warn('Error removing model:', e)
+      }
+    }
 
-    const is3d = props.type === '3d' || ['gltf', 'glb', 'obj', 'fbx', 'stl', 'ifc'].includes(props.fileFormat || '')
+    // 第一次加载时创建 viewer
+    if (!viewer.value) {
+      emit('loading', 20, 'Initializing viewer...')
 
-    emit('loading', 60, `Initializing ${is3d ? '3D' : '2D'} viewer...`)
+      const { Viewer2d, Viewer3d } = await import('@x-viewer/core')
 
-    if (is3d) {
-      viewer.value = new Viewer3d({ containerId })
-    } else {
-      viewer.value = new Viewer2d({
-        containerId,
+      emit('loading', 30, 'Creating viewer container...')
+
+      const viewerCfg = {
+        containerId: containerId.value,
+        language: 'zh',
         enableSpinner: true,
+        enableProgressBar: true,
         enableLayoutBar: true,
-      })
+      }
+
+      if (is3d) {
+        viewer.value = new Viewer3d({ containerId: containerId.value })
+      } else {
+        viewer.value = new Viewer2d(viewerCfg)
+
+        emit('loading', 40, 'Loading fonts...')
+        const fontFiles = [
+          '/vue-x-viewer/libs/fonts/simplex.shx',
+          '/vue-x-viewer/libs/fonts/hztxt.shx',
+          '/vue-x-viewer/libs/fonts/arial.ttf',
+          '/vue-x-viewer/libs/fonts/Microsoft_YaHei.ttf',
+        ]
+        await viewer.value.setFont(fontFiles)
+      }
+
+      currentViewerType = viewerType
     }
 
     emit('loading', 70, 'Loading model...')
 
-    await viewer.value.loadModel({
-      modelId: 'model-1',
-      name: props.fileUrl.split('/').pop() || 'file',
-      src: props.fileUrl,
-    })
+    const fileName = props.fileUrl.split('/').pop() || 'file'
+    const uniqueModelId = `model-${Date.now()}`
+    currentModelId = uniqueModelId
+
+    if (isPdf) {
+      // PDF 暂不支持
+      throw new Error('PDF 格式暂不支持，请使用 DWG 或 DXF 格式')
+    } else {
+      await viewer.value.loadModel({
+        modelId: uniqueModelId,
+        name: fileName,
+        src: props.fileUrl,
+      })
+    }
 
     emit('loading', 90, 'Rendering...')
 
@@ -128,7 +151,7 @@ const debouncedLoad = () => {
   if (loadTimeout) {
     clearTimeout(loadTimeout)
   }
-  loadTimeout = setTimeout(loadViewer, 100)
+  loadTimeout = setTimeout(loadViewer, 200)
 }
 
 onMounted(() => {
@@ -150,6 +173,7 @@ watch(() => [props.fileUrl, props.fileFormat], () => {
 <template>
   <div class="cad-viewer">
     <div ref="containerRef" class="viewer-container">
+      <div :id="containerId" class="x-viewer-inner"></div>
       <div v-if="isLoading" class="loading-overlay">
         <div class="loading-spinner"></div>
         <span>Loading...</span>
@@ -176,6 +200,11 @@ watch(() => [props.fileUrl, props.fileFormat], () => {
   border-radius: 8px;
   overflow: hidden;
   position: relative;
+}
+
+.x-viewer-inner {
+  width: 100%;
+  height: 100%;
 }
 
 .viewer-container::before {
