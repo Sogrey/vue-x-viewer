@@ -14,6 +14,11 @@ const props = defineProps<{
   type?: '2d' | '3d'
 }>()
 
+const emit = defineEmits<{
+  (e: 'loading', progress: number, message: string): void
+  (e: 'loaded'): void
+}>()
+
 const containerRef = ref<HTMLDivElement>()
 const isLoading = ref(false)
 const errorMessage = ref('')
@@ -66,7 +71,11 @@ const loadViewer = async () => {
   try {
     await nextTick()
 
+    emit('loading', 40, 'Initializing viewer...')
+
     const { Viewer2d, Viewer3d } = await import('@x-viewer/core')
+
+    emit('loading', 50, 'Creating viewer container...')
     const newContainer = createViewerContainer()
 
     if (!newContainer) {
@@ -78,6 +87,8 @@ const loadViewer = async () => {
 
     const is3d = props.type === '3d' || ['gltf', 'glb', 'obj', 'fbx', 'stl', 'ifc'].includes(props.fileFormat || '')
 
+    emit('loading', 60, `Initializing ${is3d ? '3D' : '2D'} viewer...`)
+
     if (is3d) {
       viewer.value = new Viewer3d({ containerId })
     } else {
@@ -88,15 +99,22 @@ const loadViewer = async () => {
       })
     }
 
+    emit('loading', 70, 'Loading model...')
+
     await viewer.value.loadModel({
       modelId: 'model-1',
       name: props.fileUrl.split('/').pop() || 'file',
       src: props.fileUrl,
     })
 
+    emit('loading', 90, 'Rendering...')
+
     if (viewer.value && viewer.value.goToHomeView) {
       viewer.value.goToHomeView()
     }
+
+    emit('loading', 100, 'Completed')
+    emit('loaded')
 
   } catch (error) {
     console.error('Failed to load model:', error)

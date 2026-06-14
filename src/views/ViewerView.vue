@@ -1,11 +1,16 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import CadViewer from '@/components/CadViewer.vue'
 
 const fileUrl = ref('')
 const fileFormat = ref<'dwg' | 'dxf' | 'gltf' | 'glb' | 'obj' | 'fbx' | 'stl' | 'ifc' | 'pdf'>('dwg')
 const viewerType = ref<'2d' | '3d'>('2d')
 const isDragging = ref(false)
+const isLoading = ref(false)
+const loadProgress = ref(0)
+const loadMessage = ref('')
+
+const DEFAULT_FILE = '/vue-x-viewer/dwg/20260422-224703-27581.dwg'
 
 const formatOptions = [
   { label: 'DWG', value: 'dwg' },
@@ -61,6 +66,33 @@ const handleLoad = () => {
     alert('Please enter a file URL or select a local file')
   }
 }
+
+const handleViewerLoading = (progress: number, message: string) => {
+  loadProgress.value = progress
+  loadMessage.value = message
+}
+
+const handleViewerLoaded = () => {
+  isLoading.value = false
+  loadProgress.value = 100
+}
+
+onMounted(() => {
+  isLoading.value = true
+  loadProgress.value = 0
+  loadMessage.value = 'Loading viewer engine...'
+
+  setTimeout(() => {
+    loadMessage.value = 'Loading DWG parser...'
+    loadProgress.value = 30
+  }, 100)
+
+  setTimeout(() => {
+    loadMessage.value = 'Parsing drawing...'
+    loadProgress.value = 60
+    fileUrl.value = DEFAULT_FILE
+  }, 500)
+})
 </script>
 
 <template>
@@ -99,10 +131,22 @@ const handleLoad = () => {
 
     <div class="viewer-wrapper" :class="{ dragging: isDragging }" @dragover="handleDragOver"
       @dragleave="handleDragLeave" @drop="handleDrop">
-      <CadViewer v-if="fileUrl" :file-url="fileUrl" :file-format="fileFormat" :type="viewerType" />
+      <CadViewer v-if="fileUrl" :file-url="fileUrl" :file-format="fileFormat" :type="viewerType"
+        @loading="handleViewerLoading" @loaded="handleViewerLoaded" />
       <div v-else class="placeholder">
         <p>Drop file here or enter URL above</p>
         <p class="hint">Supported: DWG, DXF, glTF, GLB, OBJ, FBX, STL, IFC, PDF</p>
+      </div>
+
+      <div v-if="isLoading" class="loading-overlay">
+        <div class="loading-content">
+          <div class="loading-spinner"></div>
+          <div class="loading-progress-bar">
+            <div class="loading-progress" :style="{ width: loadProgress + '%' }"></div>
+          </div>
+          <p class="loading-message">{{ loadMessage }}</p>
+          <p class="loading-percentage">{{ loadProgress }}%</p>
+        </div>
       </div>
     </div>
   </div>
@@ -299,6 +343,69 @@ const handleLoad = () => {
 .placeholder .hint {
   font-size: 12px;
   color: rgba(0, 212, 255, 0.6);
+}
+
+.loading-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(10, 14, 39, 0.95);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  backdrop-filter: blur(5px);
+}
+
+.loading-content {
+  text-align: center;
+  padding: 40px;
+}
+
+.loading-spinner {
+  width: 60px;
+  height: 60px;
+  border: 4px solid rgba(0, 212, 255, 0.2);
+  border-top-color: #00d4ff;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 24px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.loading-progress-bar {
+  width: 200px;
+  height: 4px;
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 2px;
+  margin: 0 auto 16px;
+  overflow: hidden;
+}
+
+.loading-progress {
+  height: 100%;
+  background: linear-gradient(90deg, #00d4ff, #0099cc);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.loading-message {
+  color: #00d4ff;
+  font-size: 14px;
+  margin-bottom: 8px;
+  text-shadow: 0 0 10px rgba(0, 212, 255, 0.5);
+}
+
+.loading-percentage {
+  color: rgba(224, 224, 224, 0.8);
+  font-size: 12px;
 }
 
 /* 移动端适配 */
